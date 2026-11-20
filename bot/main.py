@@ -8,6 +8,7 @@ import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError, TelegramUnauthorizedError
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -19,6 +20,7 @@ from bot.handlers import build_root_router
 from bot.handlers.common import on_error
 from bot.logging_setup import setup_logging
 from bot.middlewares import LanguageMiddleware
+from bot.telegram_retry import RetryMiddleware
 
 logger = logging.getLogger("qazaq_taste")
 
@@ -80,7 +82,11 @@ async def main() -> int:
             settings.ollama_model,
         )
 
-    bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    # Shorter per-request timeout + retries: on a slow connection a message is re-sent
+    # instead of waiting 60 s and failing (polling uses its own, longer timeout).
+    session = AiohttpSession(timeout=20)
+    session.middleware(RetryMiddleware())
+    bot = Bot(token=token, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = build_dispatcher(services)
     try:
         me = await bot.get_me()
