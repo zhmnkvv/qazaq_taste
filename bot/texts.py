@@ -133,6 +133,19 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "<b>Please check your request:</b>\n\n👤 Name: {name}\n📱 Phone: {phone}\n📅 Date: {date}\n"
               "🕐 Time: {time}\n👥 Guests: {guests}\n📝 Wishes: {wishes}\n\nIs everything correct?",
     },
+    "confirm_check": {
+        "ru": "Почти готово ✍️",
+        "kk": "Дерлік дайын ✍️",
+        "en": "Almost done ✍️",
+    },
+    "confirm_hint": {
+        "ru": "Чтобы отправить заявку, нажмите «✅ Подтвердить» под сообщением с данными заявки "
+              "(или «✏️ Заполнить заново»).",
+        "kk": "Өтінімді жіберу үшін деректер жазылған хабарламаның астындағы «✅ Растау» батырмасын басыңыз "
+              "(немесе «✏️ Қайта толтыру»).",
+        "en": "To send the request, tap \"✅ Confirm\" under the message with your details "
+              "(or \"✏️ Start over\").",
+    },
     "no_wishes": {"ru": "нет", "kk": "жоқ", "en": "none"},
     "booking_done": {
         "ru": "✅ <b>Заявка на бронирование принята!</b>\n\nНомер заявки: <code>{code}</code>\n"

@@ -103,6 +103,28 @@ async def test_full_booking_flow_saves_request(env):
         assert booking.code in final
 
 
+async def test_text_at_confirm_step_points_to_inline_buttons(env):
+    """Regression: pressing the leftover "Skip" button at the confirmation step must not leave the flow."""
+    services, session, send, press = env
+    services.users.set_language(USER.id, "ru")
+    visit = (datetime.now() + timedelta(days=2)).strftime("%d.%m.%Y")
+    for text in ["📅 Забронировать столик", "Жомарт", "+7 701 000 00 00", visit, "17:00", "2", "➡️ Пропустить"]:
+        await send(text)
+    keyboard = session.requests[-2].reply_markup.keyboard  # "almost done" message replaces the Skip keyboard
+    assert all(btn.text != "➡️ Пропустить" for row in keyboard for btn in row)
+    await send("➡️ Пропустить")
+    assert "«✅ Подтвердить»" in session.sent_texts()[-1]
+    await press("book:confirm")
+    assert "Заявка на бронирование принята" in session.sent_texts()[-1]
+
+
+async def test_stale_skip_outside_flow_shows_main_menu(env):
+    services, session, send, press = env
+    services.users.set_language(USER.id, "ru")
+    await send("➡️ Пропустить")
+    assert session.sent_texts()[-1] == "Главное меню 👇"
+
+
 async def test_cancel_in_the_middle_of_booking(env):
     services, session, send, press = env
     services.users.set_language(USER.id, "en")

@@ -103,6 +103,15 @@ async def open_section(key: str, message: Message, state: FSMContext, lang: str)
         await message.answer(tr("main_menu", lang), reply_markup=main_menu(lang))
 
 
+SKIP_TEXTS = all_variants("btn_skip")
+
+
+@fallback_router.message(StateFilter(None), F.text.func(lambda t: t in SKIP_TEXTS))
+async def stale_skip(message: Message, lang: str) -> None:
+    """A leftover "Skip" button pressed outside of a flow: just show the main menu."""
+    await message.answer(tr("main_menu", lang), reply_markup=main_menu(lang))
+
+
 @fallback_router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
 async def free_text(message: Message, bot: Bot, services: Services, lang: str) -> None:
     """Any free text outside of a flow is treated as a question for the AI consultant."""

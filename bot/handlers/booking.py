@@ -135,6 +135,8 @@ async def step_wishes(message: Message, state: FSMContext, lang: str) -> None:
     await state.update_data(wishes=wishes)
     await state.set_state(BookingForm.confirm)
     d = await state.get_data()
+    # replace the reply keyboard (it still shows "Skip") before showing inline confirm buttons
+    await message.answer(tr("confirm_check", lang), reply_markup=cancel_kb(lang))
     await message.answer(
         tr("booking_summary", lang,
            name=escape(d["name"]), phone=escape(d["phone"]),
@@ -183,6 +185,12 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext, services: Servi
         "booking_admin", "ru", code=booking.code, date=params["date"], time=params["time"], guests=booking.guests,
         name=escape(booking.customer_name), phone=escape(booking.phone), wishes=escape(booking.wishes) or "—",
     ))
+
+
+@router.message(BookingForm.confirm)
+async def confirm_hint(message: Message, lang: str) -> None:
+    """Text at the confirmation step: point to the inline buttons and drop the stale "Skip" keyboard."""
+    await message.answer(tr("confirm_hint", lang), reply_markup=cancel_kb(lang))
 
 
 @router.callback_query(F.data.startswith("book:"))
