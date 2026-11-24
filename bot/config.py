@@ -61,6 +61,7 @@ class Settings:
     timezone: str
     admin_chat_id: int | None
     log_level: str
+    bookings_csv: str = str(PROJECT_ROOT / "bookings.csv")
 
     @property
     def has_valid_token(self) -> bool:
@@ -115,4 +116,10 @@ def load_settings(env_file: str | Path | None = None, override: bool = False) ->
         timezone=os.getenv("TIMEZONE", "Asia/Almaty").strip(),
         admin_chat_id=admin_chat_id,
         log_level=log_level,
+        bookings_csv=_project_path(os.getenv("BOOKINGS_CSV", "").strip() or "bookings.csv"),
     )
+
+
+def _project_path(value: str) -> str:
+    path = Path(value)
+    return str(path if path.is_absolute() else PROJECT_ROOT / path)

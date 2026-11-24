@@ -11,6 +11,8 @@
 *.sqlite
 *.sqlite3
 data/
+# confirmed booking requests contain names and phone numbers
+bookings.csv
 
 # Python
 __pycache__/

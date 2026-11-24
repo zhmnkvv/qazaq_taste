@@ -246,3 +246,64 @@ def test_detect_language(text, default, expected):
 def test_clean_model_output():
     assert clean_model_output("<think>x</think>**Бешбармак** — 5 900 ₸") == "Бешбармак — 5 900 ₸"
     assert clean_model_output("### Title\ntext") == "Title\ntext"
+
+
+# ---- HW9: few-shot block ------------------------------------------------------------------
+def test_few_shot_block_has_three_different_examples():
+    import re as _re
+    text = load_system_prompt()
+    block = _re.search(r"<примеры>(.*?)</примеры>", text, _re.DOTALL)
+    assert block, "system prompt must contain <примеры>...</примеры>"
+    kinds = _re.findall(r'<пример тип="([^"]+)">', block.group(1))
+    assert kinds == ["обычный вопрос", "нет ответа в данных", "вежливый отказ"]
+    assert block.group(1).count("Гость:") == 3 and block.group(1).count("Ассистент:") == 3
+
+
+def test_few_shot_facts_come_from_the_menu_data():
+    """Every fact used in the <примеры> block must match bot/data/menu.py.
+
+    Text facts are compared case-insensitively (casefold): a description that starts a sentence in
+    menu.py ("Главное блюдо ...") is used mid-sentence in the example ("Бешбармак — главное блюдо ...").
+    Whole phrases are compared, not separate words.
+    """
+    import re as _re
+
+    from bot.data import menu as data
+
+    def fmt(price: int) -> str:
+        return f"{price:,}".replace(",", " ") + " ₸"
+
+    block = _re.search(r"<примеры>(.*?)</примеры>", load_system_prompt(), _re.DOTALL).group(1)
+    examples = block.casefold()
+    beshbarmak, kumys = data.DISHES_BY_ID["beshbarmak"], data.DISHES_BY_ID["kumys"]
+
+    facts = [
+        beshbarmak.description["ru"],                                    # full description sentence
+        f"Состав: {beshbarmak.ingredients['ru']}",                       # full ingredient list
+        f"Цена: {fmt(beshbarmak.price)} за порцию {beshbarmak.weight}",  # price + weight together
+        f"{kumys.name['ru']} — {fmt(kumys.price)}",                      # second dish and its price
+        data.RESTAURANT["phone"],                                        # restaurant phone
+    ]
+    for fact in facts:
+        assert fact.casefold() in examples, f"fact not found in <примеры>: {fact!r}"
+
+
+def test_without_few_shot_removes_only_the_examples():
+    from bot.services.ai_service import without_few_shot
+    full = load_system_prompt()
+    stripped = without_few_shot(full)
+    assert "<примеры>" not in stripped and "17. FEW-SHOT EXAMPLES" not in stripped
+    assert "16. RESPONSE FORMAT" in stripped and "KNOWLEDGE BASE and SESSION data follow" in stripped
+
+
+async def test_answer_similar_to_example_is_not_blocked_as_leak(history, menu):
+    reply_text = ("Бешбармак — главное блюдо казахского дастархана: отварное мясо на тонком домашнем тесте "
+                  "с луковым соусом тузлык. Цена: 5 900 ₸ за порцию 450 г.")
+    reply = await make_service(history, menu, FakeClient(reply=reply_text)).answer(1, "Что такое бешбармак?", "ru")
+    assert reply.source == "ai" and reply.text == reply_text
+
+
+async def test_few_shot_is_sent_to_the_model(history, menu):
+    client = FakeClient()
+    await make_service(history, menu, client).answer(1, "Привет", "ru")
+    assert "<примеры>" in client.calls[0][0]["content"]

@@ -13,8 +13,8 @@ from bot.texts import TEXTS, normalize_lang
 from tests.conftest import make_settings
 
 
-def test_dispatcher_builds_without_token():
-    services = build_services(make_settings(), Database("sqlite://"))
+def test_dispatcher_builds_without_token(tmp_path):
+    services = build_services(make_settings(bookings_csv=str(tmp_path / "b.csv")), Database("sqlite://"))
     dp = build_dispatcher(services)
     assert set(dp.resolve_used_update_types()) == {"message", "callback_query"}
     assert dp["services"] is services

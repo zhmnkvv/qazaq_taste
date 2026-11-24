@@ -180,6 +180,85 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "This session has expired, please start again.",
     },
 
+    # ---- booking from free text (JSON extraction) -------------------------
+    "jb_q_date": {
+        "ru": "На какую дату хотите забронировать столик? (например, 25.11.2026 или «завтра»)",
+        "kk": "Үстелді қай күнге брондағыңыз келеді? (мысалы, 25.11.2026 немесе «ертең»)",
+        "en": "For what date would you like to book a table? (e.g. 25.11.2026 or \"tomorrow\")",
+    },
+    "jb_q_time": {
+        "ru": "На какое время хотите забронировать столик?",
+        "kk": "Үстелді қай уақытқа брондағыңыз келеді?",
+        "en": "What time would you like to book the table for?",
+    },
+    "jb_q_guests": {
+        "ru": "Сколько будет гостей?",
+        "kk": "Қанша қонақ болады?",
+        "en": "How many guests will there be?",
+    },
+    "jb_q_name": {
+        "ru": "Как к вам обращаться?",
+        "kk": "Сізге қалай жүгінейін?",
+        "en": "What name should we put the booking under?",
+    },
+    "jb_q_phone": {
+        "ru": "Укажите, пожалуйста, номер телефона для связи (11 цифр, например +7 701 123 45 67).",
+        "kk": "Байланыс үшін телефон нөміріңізді жазыңыз (11 сан, мысалы +7 701 123 45 67).",
+        "en": "Please share a contact phone number (11 digits, e.g. +7 701 123 45 67).",
+    },
+    "err_phone_11": {
+        "ru": "Номер телефона должен содержать 11 цифр, например +7 701 123 45 67. Укажите номер ещё раз:",
+        "kk": "Телефон нөмірі 11 саннан тұруы керек, мысалы +7 701 123 45 67. Нөмірді қайта жазыңыз:",
+        "en": "The phone number must contain 11 digits, e.g. +7 701 123 45 67. Please enter it again:",
+    },
+    "jb_summary": {
+        "ru": "<b>Бронирование:</b>\nДата: {date}\nВремя: {time}\nГостей: {guests}\nИмя: {name}\nТелефон: {phone}\n\n"
+              "Подтверждаете? Ответьте «да» или «нет». Чтобы что-то исправить, просто напишите, например: "
+              "«время 20:00».",
+        "kk": "<b>Брондау:</b>\nКүні: {date}\nУақыты: {time}\nҚонақтар: {guests}\nАты: {name}\nТелефон: {phone}\n\n"
+              "Растайсыз ба? «иә» немесе «жоқ» деп жауап беріңіз. Түзету үшін жазыңыз, мысалы: «уақыты 20:00».",
+        "en": "<b>Booking:</b>\nDate: {date}\nTime: {time}\nGuests: {guests}\nName: {name}\nPhone: {phone}\n\n"
+              "Do you confirm? Reply \"yes\" or \"no\". To change something just write, e.g. \"time 20:00\".",
+    },
+    "jb_saved": {
+        "ru": "✅ Заявка на бронирование принята! Номер заявки: <code>{code}</code>\n"
+              "⚠️ Это заявка, а не подтверждённая бронь: администратор проверит свободные столы и свяжется с вами "
+              "для подтверждения.",
+        "kk": "✅ Брондауға өтінім қабылданды! Өтінім нөмірі: <code>{code}</code>\n"
+              "⚠️ Бұл расталған бронь емес, өтінім: әкімші бос үстелдерді тексеріп, растау үшін хабарласады.",
+        "en": "✅ Booking request received! Request number: <code>{code}</code>\n"
+              "⚠️ This is a request, not a confirmed reservation: our administrator will check availability and "
+              "contact you to confirm.",
+    },
+    "jb_cancelled": {
+        "ru": "Хорошо, заявка не отправлена и не сохранена.",
+        "kk": "Жақсы, өтінім жіберілмеді және сақталмады.",
+        "en": "OK, the request was not sent or saved.",
+    },
+    "jb_invalid_json": {
+        "ru": "😔 Не удалось разобрать заявку. Пожалуйста, напишите её ещё раз одним сообщением, например: "
+              "«Столик на завтра в 19:00 на 4 человек».",
+        "kk": "😔 Өтінімді түсіну мүмкін болмады. Оны бір хабарламамен қайта жазыңыз, мысалы: "
+              "«Ертеңге сағат 19:00-ге 4 адамға үстел».",
+        "en": "😔 I couldn't read the request. Please write it again in one message, e.g. "
+              "\"A table for 4 tomorrow at 19:00\".",
+    },
+    "jb_invalid_answer": {
+        "ru": "😔 Не удалось разобрать ответ. Повторите, пожалуйста.",
+        "kk": "😔 Жауапты түсіну мүмкін болмады. Қайталаңызшы.",
+        "en": "😔 I couldn't read the answer. Please repeat it.",
+    },
+    "jb_not_understood": {
+        "ru": "Чтобы продолжить бронирование, ответьте, пожалуйста, на вопрос (или /cancel для отмены).",
+        "kk": "Брондауды жалғастыру үшін сұраққа жауап беріңіз (болдырмау үшін /cancel).",
+        "en": "To continue the booking please answer the question (or /cancel to stop).",
+    },
+    "jb_confirm_hint": {
+        "ru": "Ответьте «да», чтобы подтвердить заявку, или «нет», чтобы отменить.",
+        "kk": "Өтінімді растау үшін «иә», болдырмау үшін «жоқ» деп жауап беріңіз.",
+        "en": "Reply \"yes\" to confirm the request or \"no\" to cancel it.",
+    },
+
     # ---- validation errors -----------------------------------------------
     "err_name": {
         "ru": "Имя должно содержать только буквы (2–60 символов). Попробуйте ещё раз:",

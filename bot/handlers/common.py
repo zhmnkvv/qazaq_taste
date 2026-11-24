@@ -17,6 +17,7 @@ from aiogram.types import ErrorEvent, Message
 from bot.container import Services
 from bot.handlers.ai_chat import ask_ai, start_ai
 from bot.handlers.booking import start_booking
+from bot.handlers.booking_chat import try_start_booking_chat
 from bot.handlers.events import start_budget, start_event
 from bot.handlers.menu import show_menu
 from bot.handlers.start import show_about, show_contacts
@@ -113,8 +114,10 @@ async def stale_skip(message: Message, lang: str) -> None:
 
 
 @fallback_router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
-async def free_text(message: Message, bot: Bot, services: Services, lang: str) -> None:
-    """Any free text outside of a flow is treated as a question for the AI consultant."""
+async def free_text(message: Message, state: FSMContext, bot: Bot, services: Services, lang: str) -> None:
+    """Free text outside of a flow: a booking request goes to JSON extraction, anything else to the AI."""
+    if await try_start_booking_chat(message, state, bot, services, lang):
+        return
     await ask_ai(message, bot, services, message.from_user.id, message.text, lang)
 
 

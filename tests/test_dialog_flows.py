@@ -49,9 +49,9 @@ class MockSession(BaseSession):
 
 
 @pytest.fixture
-async def env():
+async def env(tmp_path):
     db = Database("sqlite://")
-    services = build_services(make_settings(), db)
+    services = build_services(make_settings(bookings_csv=str(tmp_path / "bookings.csv")), db)
     session = MockSession()
     bot = Bot(FAKE_TOKEN, session=session)
     dp = build_dispatcher(services)
@@ -200,3 +200,157 @@ async def test_ai_mode_uses_fallback_when_ollama_down(env):
     reply = session.requests[-1]
     assert reply.parse_mode is None  # model/fallback output is never parsed as HTML
     assert "5 900 ₸" in reply.text
+
+
+# --------------------------------------------------------------------------- #
+# HW9: booking from free text via JSON extraction
+# --------------------------------------------------------------------------- #
+import json  # noqa: E402
+
+from bot.database.csv_store import BookingsCsv  # noqa: E402
+
+
+class ScriptedLLM:
+    """Plays the role of Ollama for the extraction call: returns prepared answers in order."""
+
+    def __init__(self, *answers):
+        self.answers = list(answers)
+        self.calls = 0
+
+    async def chat(self, messages, json_mode=False, temperature=None):
+        self.calls += 1
+        return self.answers.pop(0)
+
+
+def j(**fields) -> str:
+    base = {"intent": "booking", "date": None, "time": None, "guests": None, "name": None, "phone": None}
+    base.update(fields)
+    base["missing"] = [k for k in ("date", "time", "guests", "name", "phone") if base[k] is None]
+    return json.dumps(base, ensure_ascii=False)
+
+
+def csv_rows(services) -> list[dict]:
+    return BookingsCsv(services.settings.bookings_csv).read_all()
+
+
+async def test_json_booking_full_flow_with_llm(env):
+    services, session, send, press = env
+    services.users.set_language(USER.id, "ru")
+    tomorrow = (services.booking.today() + timedelta(days=1)).isoformat()
+    services.extractor.client = ScriptedLLM(
+        "Конечно! Вот JSON: {...}",                 # invalid -> one retry
+        j(date=tomorrow, guests=4),                 # time, name, phone missing
+        j(time="19:00"),
+        j(name="Жомарт"),
+        j(phone="+77011234567"),
+    )
+    await send("Хочу забронировать столик на завтра на четверых")
+    assert services.extractor.client.calls == 2      # first answer invalid -> exactly one retry
+    assert session.sent_texts()[-1] == "На какое время хотите забронировать столик?"  # ONE question
+    await send("19:00")
+    assert session.sent_texts()[-1] == "Как к вам обращаться?"
+    await send("Жомарт")
+    assert session.sent_texts()[-1].startswith("Укажите, пожалуйста, номер телефона")
+    await send("+7 701 123 45 67")
+    summary = session.sent_texts()[-1]
+    for part in ("Бронирование:", "Время: 19:00", "Гостей: 4", "Имя: Жомарт", "Телефон: +77011234567",
+                 "Подтверждаете?"):
+        assert part in summary
+    assert csv_rows(services) == []                  # nothing saved before confirmation
+    await send("Подтверждаю бронь")
+    assert "Заявка на бронирование принята" in session.sent_texts()[-1]
+    rows = csv_rows(services)
+    assert len(rows) == 1
+    assert {k: rows[0][k] for k in ("intent", "date", "time", "guests", "name", "phone")} == {
+        "intent": "booking", "date": tomorrow, "time": "19:00", "guests": "4", "name": "Жомарт",
+        "phone": "+77011234567"}
+    with services.db.session() as s:
+        assert s.query(Booking).count() == 1
+
+
+async def test_json_booking_two_invalid_answers_ask_to_repeat(env):
+    services, session, send, press = env
+    services.users.set_language(USER.id, "ru")
+    services.extractor.client = ScriptedLLM("oops", "still not json")
+    await send("Забронируйте столик на завтра")
+    assert "Не удалось разобрать заявку" in session.sent_texts()[-1]
+    assert services.extractor.client.calls == 2
+
+
+async def test_json_booking_without_ollama_validation_and_rejection(env):
+    """Ollama is down in tests (closed port) -> the rule-based extractor is used."""
+    services, session, send, press = env
+    services.users.set_language(USER.id, "ru")
+    await send("Хочу забронировать столик на 01.01.2020 в 03:00 на 4 человек")
+    assert "Эта дата уже прошла" in session.sent_texts()[-1]     # past date rejected, asked again
+    day = (services.booking.today() + timedelta(days=3)).strftime("%d.%m.%Y")
+    await send(day)
+    assert "Укажите другое время" in session.sent_texts()[-1]    # 03:00 outside opening hours
+    await send("19:00")
+    assert session.sent_texts()[-1] == "Как к вам обращаться?"
+    await send("Жомарт")
+    await send("12345")
+    assert "11 цифр" in session.sent_texts()[-1]                 # bad phone rejected
+    await send("8 701 123 45 67")
+    assert "Подтверждаете?" in session.sent_texts()[-1]
+    await send("время 20:00")                                    # correction at the confirm step
+    assert "Время: 20:00" in session.sent_texts()[-1]
+    await send("нет")
+    assert "не отправлена" in session.sent_texts()[-1]
+    assert csv_rows(services) == []                              # rejected -> nothing saved
+
+
+async def test_non_booking_question_still_goes_to_ai(env):
+    services, session, send, press = env
+    services.users.set_language(USER.id, "ru")
+    await send("Сколько стоит бешбармак?")
+    assert "5 900 ₸" in session.sent_texts()[-1]
+
+
+# ---- regression: booking inquiry goes to the AI consultant, request starts the flow ---------
+@pytest.mark.parametrize("text", [
+    "Как забронировать столик?",
+    "Вы принимаете бронирования?",
+    "До скольки можно забронировать?",
+    "Как забронировать столик на пятницу вечером и до скольки вы работаете?",
+])
+async def test_booking_inquiry_goes_to_ai_consultant(env, text):
+    services, session, send, press = env
+    services.users.set_language(USER.id, "ru")
+    services.extractor.client = ScriptedLLM()  # would fail if called: no prepared answers
+    await send(text)
+    reply = session.sent_texts()[-1]
+    assert "На какую дату" not in reply                         # booking flow NOT started
+    assert "AI-консультант сейчас недоступен" in reply          # answered by the consultant (fallback)
+    assert services.extractor.client.calls == 0                 # no extraction call for an inquiry
+    with services.db.session() as s:
+        assert s.query(Booking).count() == 0
+
+
+async def test_booking_hours_question_gets_hours_in_fallback(env):
+    services, session, send, press = env
+    services.users.set_language(USER.id, "ru")
+    await send("Как забронировать столик на пятницу вечером и до скольки вы работаете?")
+    reply = session.sent_texts()[-1]
+    assert "Пт–Сб: 11:00–00:00" in reply and "Забронировать столик" in reply
+
+
+@pytest.mark.parametrize("text,first_question", [
+    ("Хочу забронировать столик", "На какую дату хотите забронировать столик?"),
+    ("Забронируйте столик на завтра на 4 человек", "На какое время хотите забронировать столик?"),
+])
+async def test_booking_request_starts_the_flow(env, text, first_question):
+    services, session, send, press = env
+    services.users.set_language(USER.id, "ru")
+    await send(text)
+    assert session.sent_texts()[-1].startswith(first_question)
+
+
+async def test_inquiry_inside_ai_mode_also_goes_to_ai(env):
+    services, session, send, press = env
+    services.users.set_language(USER.id, "ru")
+    await send("🤖 AI-консультант")
+    await send("Вы принимаете бронирования?")
+    assert "На какую дату" not in session.sent_texts()[-1]
+    await send("Хочу забронировать столик на завтра")
+    assert session.sent_texts()[-1] == "На какое время хотите забронировать столик?"

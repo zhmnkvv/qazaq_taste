@@ -85,11 +85,20 @@ def clean_model_output(text: str) -> str:
     return unescape(text).strip()
 
 
+FEW_SHOT_RE = re.compile(r"-{10,}\s*\n17\. FEW-SHOT EXAMPLES.*?</примеры>\s*\n", re.DOTALL)
+
+
+def without_few_shot(system_prompt: str) -> str:
+    """The system prompt without section 17 (used for before/after comparisons)."""
+    return FEW_SHOT_RE.sub("", system_prompt)
+
+
 def leaks_system_prompt(reply: str, system_prompt: str) -> bool:
     if any(marker.lower() in reply.lower() for marker in LEAK_MARKERS):
         return True
-    # Long verbatim fragments of the prompt (8+ consecutive words).
-    words = re.findall(r"\w+", system_prompt.lower())
+    # Long verbatim fragments of the rules (12+ consecutive words). The few-shot block is
+    # excluded: a correct answer may legitimately look like one of the sample answers.
+    words = re.findall(r"\w+", without_few_shot(system_prompt).lower())
     reply_norm = " ".join(re.findall(r"\w+", reply.lower()))
     for i in range(0, max(len(words) - 12, 0), 6):
         chunk = " ".join(words[i:i + 12])
@@ -135,14 +144,22 @@ class OllamaClient:
         wanted = self.model if ":" in self.model else f"{self.model}:latest"
         return wanted in names or self.model in names
 
-    async def chat(self, messages: list[dict[str, str]]) -> str:
+    async def chat(self, messages: list[dict[str, str]], json_mode: bool = False,
+                   temperature: float | None = None) -> str:
+        """``json_mode`` asks Ollama to constrain the output to JSON (used for booking extraction)."""
         body = {
             "model": self.model,
             "messages": messages,
             "stream": False,
-            "options": {"temperature": self.temperature, "num_ctx": self.num_ctx, "top_p": 0.9},
+            "options": {
+                "temperature": self.temperature if temperature is None else temperature,
+                "num_ctx": self.num_ctx,
+                "top_p": 0.9,
+            },
             "keep_alive": "30m",
         }
+        if json_mode:
+            body["format"] = "json"
         try:
             session = await self._get_session()
             async with session.post(f"{self.base_url}/api/chat", json=body,

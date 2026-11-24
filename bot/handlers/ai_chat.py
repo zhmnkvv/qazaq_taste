@@ -12,6 +12,7 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.chat_action import ChatActionSender
 
 from bot.container import Services
+from bot.handlers.booking_chat import try_start_booking_chat
 from bot.keyboards.keyboards import ai_kb
 from bot.texts import all_variants, tr
 
@@ -66,7 +67,10 @@ async def on_reset_button(message: Message, services: Services, lang: str) -> No
 
 
 @router.message(AIChat.active, F.text)
-async def on_ai_message(message: Message, bot: Bot, services: Services, lang: str) -> None:
+async def on_ai_message(message: Message, state: FSMContext, bot: Bot, services: Services, lang: str) -> None:
+    # "Забронируйте столик на завтра в 19:00" inside the AI chat starts the JSON booking flow
+    if await try_start_booking_chat(message, state, bot, services, lang):
+        return
     await ask_ai(message, bot, services, message.from_user.id, message.text, lang)
 
 

@@ -1,6 +1,6 @@
 from aiogram import Router
 
-from bot.handlers import ai_chat, booking, common, events, menu, start
+from bot.handlers import ai_chat, booking, booking_chat, common, events, menu, start
 
 
 def _detach(router: Router) -> None:
@@ -21,6 +21,7 @@ def build_root_router() -> Router:
         common.nav_router,        # main buttons + commands + /cancel from any state
         menu.router,
         booking.router,
+        booking_chat.router,      # booking from free text via JSON extraction
         events.router,
         ai_chat.router,
         common.fallback_router,   # must be last: free text -> AI consultant
