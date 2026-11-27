@@ -354,3 +354,87 @@ async def test_inquiry_inside_ai_mode_also_goes_to_ai(env):
     assert "На какую дату" not in session.sent_texts()[-1]
     await send("Хочу забронировать столик на завтра")
     assert session.sent_texts()[-1] == "На какое время хотите забронировать столик?"
+
+
+# --------------------------------------------------------------------------- #
+# HW10: Telegram receives ONLY <ответ>; <размышление> stays in the console
+# --------------------------------------------------------------------------- #
+import logging  # noqa: E402
+
+HW10_REASONING = "Гость спрашивает, как забронировать. Это информационный вопрос, бронирование не запускаю."
+HW10_ANSWER = "Оставить заявку можно кнопкой «📅 Забронировать столик». В пятницу мы работаем с 11:00 до 00:00."
+
+
+class TaggedLLM:
+    def __init__(self, reply):
+        self.reply = reply
+        self.calls = 0
+
+    async def chat(self, messages, json_mode=False, temperature=None):
+        self.calls += 1
+        return self.reply
+
+
+def tagged(reasoning=HW10_REASONING, answer=HW10_ANSWER) -> str:
+    return f"<размышление>\n{reasoning}\n</размышление>\n<ответ>\n{answer}\n</ответ>"
+
+
+async def test_telegram_gets_only_the_answer_and_console_gets_reasoning(env, caplog):
+    services, session, send, press = env
+    caplog.set_level(logging.INFO, logger="qazaq_taste.reasoning")
+    services.users.set_language(USER.id, "ru")
+    services.ai.client = TaggedLLM(tagged())
+    await send("Как забронировать столик на пятницу вечером и до скольки вы работаете?")
+    sent = session.sent_texts()
+    assert sent[-1] == HW10_ANSWER                                  # exactly the <ответ> block
+    assert all(HW10_REASONING not in t and "размышление" not in t.lower() and "<ответ>" not in t for t in sent)
+    assert "========== REASONING ==========" in caplog.text and HW10_REASONING in caplog.text
+
+
+async def test_ai_mode_also_sends_only_the_answer(env):
+    services, session, send, press = env
+    services.users.set_language(USER.id, "ru")
+    services.ai.client = TaggedLLM(tagged(reasoning="секретный анализ", answer="Бешбармак стоит 5 900 ₸."))
+    await send("🤖 AI-консультант")
+    await send("Сколько стоит бешбармак?")
+    assert session.sent_texts()[-1] == "Бешбармак стоит 5 900 ₸."
+    assert not any("секретный анализ" in t for t in session.sent_texts())
+
+
+async def test_empty_answer_block_sends_fallback_not_reasoning(env):
+    services, session, send, press = env
+    services.users.set_language(USER.id, "ru")
+    services.ai.client = TaggedLLM("<размышление>секретный анализ</размышление><ответ></ответ>")
+    await send("Что посоветуете?")
+    assert "секретный анализ" not in session.sent_texts()[-1]
+    assert "AI-консультант сейчас недоступен" in session.sent_texts()[-1]
+
+
+async def test_booking_request_still_uses_json_flow_with_reasoning_enabled(env):
+    """HW9 booking flow is untouched: the extraction call returns JSON, not the reasoning format."""
+    services, session, send, press = env
+    services.users.set_language(USER.id, "ru")
+    tomorrow = (services.booking.today() + timedelta(days=1)).isoformat()
+    services.extractor.client = ScriptedLLM(j(date=tomorrow, guests=4))
+    services.ai.client = TaggedLLM(tagged())  # must NOT be used for a booking request
+    await send("Хочу забронировать столик на завтра на четверых")
+    assert session.sent_texts()[-1] == "На какое время хотите забронировать столик?"
+    assert services.ai.client.calls == 0
+
+
+async def test_late_arrival_question_goes_to_ai_with_python_calculation(env):
+    services, session, send, press = env
+    services.users.set_language(USER.id, "ru")
+    llm = TaggedLLM(tagged(answer="Вы придёте примерно в 19:40 — предупредите ресторан по телефону."))
+    services.ai.client = llm
+    seen = {}
+
+    async def spy(messages, json_mode=False, temperature=None):
+        seen["system"] = messages[0]["content"]
+        return await TaggedLLM.chat(llm, messages)
+
+    llm.chat = spy
+    await send("У меня бронь сегодня на 19:00, но я опоздаю минут на 40. Столик за мной сохранится?")
+    assert "На какую дату" not in session.sent_texts()[-1]          # not a new booking request
+    assert "expected arrival 19:40" in seen["system"]                 # computed by Python, given to the model
+    assert session.sent_texts()[-1].startswith("Вы придёте примерно в 19:40")

@@ -29,8 +29,10 @@ import aiohttp
 from bot.config import BOT_DIR, Settings
 from bot.data import menu as data
 from bot.database.repository import ChatHistoryRepository
+from bot.services.calculations import Calculations, calculate
 from bot.services.menu_service import MenuService, format_kzt
 from bot.services.proposal_service import calculate_budget
+from bot.services.reasoning import log_reasoning, parse_reasoned_reply
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +93,21 @@ FEW_SHOT_RE = re.compile(r"-{10,}\s*\n17\. FEW-SHOT EXAMPLES.*?</примеры>
 def without_few_shot(system_prompt: str) -> str:
     """The system prompt without section 17 (used for before/after comparisons)."""
     return FEW_SHOT_RE.sub("", system_prompt)
+
+
+REASONING_SECTION_RE = re.compile(r"\n-{10,}\s*\n18\. REASONING FORMAT.*?\n(?=\n={10,})", re.DOTALL)
+
+
+def without_reasoning_format(system_prompt: str) -> str:
+    """The prompt as it was before the reasoning homework ("reasoning OFF"): no section 18,
+    no permission for the wrapper tags, and few-shot answers without the <размышление>/<ответ> wrappers
+    (the answer texts themselves stay identical)."""
+    text = REASONING_SECTION_RE.sub("", system_prompt)
+    text = text.replace(" The only tags you may use are the two\n  wrappers <размышление> and <ответ> described in "
+                        "section 18.", "")
+    text = re.sub(r"Ассистент:\n<размышление>.*?</размышление>\n<ответ>\n(.*?)\n</ответ>",
+                  r"Ассистент: \1", text, flags=re.DOTALL)
+    return text
 
 
 def leaks_system_prompt(reply: str, system_prompt: str) -> bool:
@@ -248,14 +265,16 @@ class FallbackResponder:
     def __init__(self, menu: MenuService) -> None:
         self.menu = menu
 
-    def answer(self, text: str, lang: str) -> str:
+    def answer(self, text: str, lang: str, calcs: Calculations | None = None) -> str:
         low = text.lower()
         parts: list[str] = [_F["unavailable"][lang]]
 
         if INJECTION_PATTERNS.search(text):
             return _F["injection"][lang]
 
-        mentioned = self.menu.find_mentioned(text)[:3]
+        calc_parts = _calculation_parts(calcs, lang) if calcs else []
+        parts += calc_parts
+        mentioned = [] if calcs and calcs.bill else self.menu.find_mentioned(text)[:3]
         for dish in mentioned:
             parts.append(_plain(self.menu.dish_card(dish, lang)))
 
@@ -280,9 +299,10 @@ class FallbackResponder:
             parts.append(f"{_F['contacts'][lang]}: {r['address'][lang]}, {r['city'][lang]}\n☎️ {r['phone']}")
         if has("hours"):
             parts.append(f"{_F['hours'][lang]}: {r['hours'][lang]}")
-        if has("booking"):
+        late = bool(calcs and calcs.late)
+        if has("booking") and not late:
             parts.append(_F["booking"][lang])
-        if has("event"):
+        if has("event") or (calcs and calcs.guests and calcs.guests.over_booking_limit):
             parts.append(_F["event"][lang])
         if len(parts) == 1:
             parts.append(_F["default"][lang])
@@ -301,6 +321,74 @@ class FallbackResponder:
         return _plain(format_budget(calculate_budget(guests, max(amounts), self.menu), lang))
 
 
+_C = {
+    "bill": data.t("🧾 Расчёт счёта (посчитано программой по ценам меню):",
+                   "🧾 Шот есебі (бағдарлама мәзір бағасы бойынша есептеді):",
+                   "🧾 Bill (calculated by the program from menu prices):"),
+    "subtotal": data.t("Блюда и напитки", "Тағамдар мен сусындар", "Food and drinks"),
+    "service": data.t("Обслуживание", "Қызмет көрсету", "Service charge"),
+    "total": data.t("Итого", "Барлығы", "Total"),
+    "guests_over": data.t(
+        "👥 {n} гостей — это больше {max}, поэтому обычная бронь столика через бота невозможна.",
+        "👥 {n} қонақ — бұл {max}-ден көп, сондықтан бот арқылы қарапайым үстел брондау мүмкін емес.",
+        "👥 {n} guests is more than {max}, so a regular table booking through the bot is not possible.",
+    ),
+    "guests_fit": data.t("Подходят залы: {halls}.", "Сыятын залдар: {halls}.", "Halls that fit: {halls}."),
+    "guests_small": data.t("Не подходят (мала вместимость): {halls}.", "Сыймайды: {halls}.",
+                           "Too small: {halls}."),
+    "guests_season": data.t("Сейчас недоступна (сезонная): {halls}.", "Қазір қолжетімсіз (маусымдық): {halls}.",
+                            "Not available now (seasonal): {halls}."),
+    "guests_none": data.t("Такой группы нет ни в одном зале (максимум {max}).",
+                          "Мұндай топ ешбір залға сыймайды (ең көбі {max}).",
+                          "No hall fits such a group (maximum {max})."),
+    "late": data.t(
+        "🕐 Бронь на {booked}, опоздание {delay} мин → вы придёте примерно в {arrival}. Сегодня мы работаем "
+        "{open}–{close}. Сколько времени держится столик при опоздании, у меня информации нет — пожалуйста, "
+        "предупредите ресторан по телефону {phone}.",
+        "🕐 Бронь {booked}, кешігу {delay} мин → шамамен {arrival}-де келесіз. Бүгін {open}–{close} жұмыс "
+        "істейміз. Кешіккенде үстел қанша уақыт сақталатыны туралы ақпарат жоқ — {phone} нөміріне хабарлаңыз.",
+        "🕐 Booking at {booked}, {delay} min late → you will arrive around {arrival}. Today we are open "
+        "{open}–{close}. I have no information on how long a table is held for late guests — please call "
+        "the restaurant at {phone}.",
+    ),
+    "late_closed": data.t(" ⚠️ Это уже после закрытия.", " ⚠️ Бұл жабылғаннан кейін.", " ⚠️ That is after closing time."),
+}
+
+
+def _calculation_parts(calcs: Calculations, lang: str) -> list[str]:
+    """Human-readable results of the Python calculations for the rule-based fallback."""
+    parts: list[str] = []
+    if calcs.bill:
+        b = calcs.bill
+        rows = [f"• {line.dish.localized('name', lang)}: {line.qty} × {format_kzt(line.dish.price)} = "
+                f"{format_kzt(line.amount)}" for line in b.lines]
+        rows += [f"{_C['subtotal'][lang]}: {format_kzt(b.subtotal)}",
+                 f"{_C['service'][lang]} ({data.SERVICE_CHARGE_PERCENT}%): {format_kzt(b.service)}",
+                 f"{_C['total'][lang]}: {format_kzt(b.total)}"]
+        parts.append(_C["bill"][lang] + "\n" + "\n".join(rows))
+    if calcs.guests:
+        g = calcs.guests
+        hall = lambda k: f"{data.HALL_CAPACITY[k]['name'][lang]} ({data.HALL_CAPACITY[k]['capacity']})"  # noqa: E731
+        rows = []
+        if g.over_booking_limit:
+            rows.append(_C["guests_over"][lang].format(n=g.guests, max=data.BOOKING_MAX_GUESTS))
+        if g.fits:
+            rows.append(_C["guests_fit"][lang].format(halls=", ".join(hall(k) for k in g.fits)))
+        else:
+            rows.append(_C["guests_none"][lang].format(max=max(h["capacity"] for h in data.HALL_CAPACITY.values())))
+        if g.too_small:
+            rows.append(_C["guests_small"][lang].format(halls=", ".join(hall(k) for k in g.too_small)))
+        if g.off_season:
+            rows.append(_C["guests_season"][lang].format(halls=", ".join(hall(k) for k in g.off_season)))
+        parts.append("\n".join(rows))
+    if calcs.late:
+        lt = calcs.late
+        text = _C["late"][lang].format(booked=f"{lt.booked:%H:%M}", delay=lt.delay_min, arrival=f"{lt.arrival:%H:%M}",
+                                       open=lt.open_from, close=lt.close_at, phone=data.RESTAURANT["phone"])
+        parts.append(text + ("" if lt.within_hours else _C["late_closed"][lang]))
+    return parts
+
+
 def _plain(html_text: str) -> str:
     return unescape(re.sub(r"<[^>]+>", "", html_text))
 
@@ -310,8 +398,10 @@ def _plain(html_text: str) -> str:
 # --------------------------------------------------------------------------- #
 @dataclass
 class AIReply:
-    text: str
-    source: str  # "ai" | "fallback" | "guard"
+    text: str                      # the ONLY text sent to the guest
+    source: str                    # "ai" | "fallback" | "guard"
+    reasoning: str | None = None   # console-only demonstration, never sent to Telegram
+    parse_status: str | None = None
 
 
 class AIService:
@@ -325,23 +415,33 @@ class AIService:
         self.knowledge_base = menu.knowledge_base()
         self.fallback = FallbackResponder(menu)
 
-    def build_system_message(self, lang: str) -> str:
-        now = datetime.now(ZoneInfo(self.settings.timezone))
+    def now(self) -> datetime:
+        return datetime.now(ZoneInfo(self.settings.timezone))
+
+    def build_system_message(self, lang: str, calculations: Calculations | None = None) -> str:
+        now = self.now()
         session = (
             "## SESSION\n"
             f"User interface language: {LANG_NAMES.get(lang, 'Russian')} ({lang}).\n"
             f"Current date and time in Almaty: {now:%d.%m.%Y %H:%M} ({now:%A})."
         )
-        return f"{self.system_prompt}\n\n# KNOWLEDGE BASE\n{self.knowledge_base}\n\n{session}"
+        message = f"{self.system_prompt}\n\n# KNOWLEDGE BASE\n{self.knowledge_base}\n\n{session}"
+        if calculations:
+            message += "\n\n" + calculations.as_prompt()
+        return message
 
-    def build_messages(self, telegram_id: int, user_text: str, lang: str) -> list[dict[str, str]]:
+    def build_messages(self, telegram_id: int, user_text: str, lang: str,
+                       calculations: Calculations | None = None) -> list[dict[str, str]]:
         history = self.history.last(telegram_id, self.settings.ai_history_limit)
         reply_lang = detect_language(user_text, lang)
+        if calculations is None:
+            calculations = calculate(user_text, self.menu, self.now().date())
         reminder = (
-            f"[Reply in {LANG_NAMES[reply_lang]}. Follow the Qazaq Taste consultant rules.]\n"
+            f"[Reply in {LANG_NAMES[reply_lang]}. Follow the Qazaq Taste consultant rules. "
+            "Use the format <размышление>…</размышление> <ответ>…</ответ>.]\n"
         )
         return [
-            {"role": "system", "content": self.build_system_message(lang)},
+            {"role": "system", "content": self.build_system_message(lang, calculations)},
             *history,
             {"role": "user", "content": reminder + user_text},
         ]
@@ -352,27 +452,37 @@ class AIService:
         if not text:
             return AIReply(self.fallback.answer("", reply_lang), "fallback")
 
-        messages = self.build_messages(telegram_id, text, lang)
+        # money / guests / late-arrival maths is done by Python, not by the model
+        calcs = calculate(text, self.menu, self.now().date())
+        messages = self.build_messages(telegram_id, text, lang, calcs)
         try:
             raw = await self.client.chat(messages)
         except AIServiceError as exc:
             logger.warning("AI unavailable, using fallback: %s", exc)
-            return AIReply(self.fallback.answer(text, reply_lang), "fallback")
+            return AIReply(self.fallback.answer(text, reply_lang, calcs), "fallback")
         except Exception:  # never let the AI break the bot
             logger.exception("Unexpected AI error, using fallback")
-            return AIReply(self.fallback.answer(text, reply_lang), "fallback")
+            return AIReply(self.fallback.answer(text, reply_lang, calcs), "fallback")
 
-        reply = clean_model_output(raw)
-        if not reply:
-            return AIReply(self.fallback.answer(text, reply_lang), "fallback")
+        # Split <размышление> (console only) from <ответ> (the only part the guest receives).
+        parsed = parse_reasoned_reply(raw)
+        reply = clean_model_output(parsed.answer)
+        if not reply:  # empty <ответ> or only an unfinished analysis -> safe fallback, never the reasoning
+            fallback_text = self.fallback.answer(text, reply_lang, calcs)
+            if self.settings.show_reasoning:
+                log_reasoning(parsed, fallback_text, source="fallback")
+            return AIReply(fallback_text, "fallback", parsed.reasoning, parsed.status)
         if leaks_system_prompt(reply, self.system_prompt):
             logger.warning("Blocked a reply that leaked system instructions")
-            return AIReply(_F["injection"][reply_lang], "guard")
+            return AIReply(_F["injection"][reply_lang], "guard", parsed.reasoning, parsed.status)
+        if self.settings.show_reasoning:
+            log_reasoning(parsed, reply)
 
+        # history keeps only what the guest actually saw
         self.history.add(telegram_id, "user", text)
         self.history.add(telegram_id, "assistant", reply)
         self.history.prune(telegram_id, keep=max(self.settings.ai_history_limit, 2))
-        return AIReply(reply, "ai")
+        return AIReply(reply, "ai", parsed.reasoning, parsed.status)
 
     def reset(self, telegram_id: int) -> None:
         self.history.clear(telegram_id)

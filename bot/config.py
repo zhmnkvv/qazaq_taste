@@ -62,6 +62,7 @@ class Settings:
     admin_chat_id: int | None
     log_level: str
     bookings_csv: str = str(PROJECT_ROOT / "bookings.csv")
+    show_reasoning: bool = True  # print the <размышление> block to the console (never sent to Telegram)
 
     @property
     def has_valid_token(self) -> bool:
@@ -117,6 +118,7 @@ def load_settings(env_file: str | Path | None = None, override: bool = False) ->
         admin_chat_id=admin_chat_id,
         log_level=log_level,
         bookings_csv=_project_path(os.getenv("BOOKINGS_CSV", "").strip() or "bookings.csv"),
+        show_reasoning=os.getenv("SHOW_REASONING", "true").strip().lower() not in {"0", "false", "no", "off"},
     )
 
 

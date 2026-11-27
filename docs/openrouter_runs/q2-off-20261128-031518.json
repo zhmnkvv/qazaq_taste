@@ -1,0 +1,43 @@
+{
+  "model_requested": "nvidia/nemotron-3.5-super-vl:free",
+  "model_used": "nvidia/nemotron-3.5-super-vl:free",
+  "question": 2,
+  "mode": "off",
+  "reasoning_param_sent": {
+    "enabled": false
+  },
+  "finish_reason": "stop",
+  "elapsed_seconds": 2.02,
+  "usage": {
+    "prompt_tokens": 7544,
+    "completion_tokens": 130,
+    "total_tokens": 7674,
+    "cost": 0,
+    "is_byok": false,
+    "prompt_tokens_details": {
+      "cached_tokens": 4336,
+      "cache_write_tokens": 0,
+      "audio_tokens": 0,
+      "video_tokens": 0
+    },
+    "cost_details": {
+      "upstream_inference_cost": 0,
+      "upstream_inference_prompt_cost": 0,
+      "upstream_inference_completions_cost": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "image_tokens": 0,
+      "audio_tokens": 0
+    }
+  },
+  "parse_status": "no_tags",
+  "api_reasoning": "",
+  "reasoning_block": null,
+  "answer": "К сожалению, VIP-зал «Юрта» рассчитан на 20 человек, поэтому 35 гостей туда не поместятся. Для вашей компании подойдёт основной зал — до 80 гостей.\n\nВ субботу ресторан работает до 00:00, вечернее время возможно. Для официального расчёта и бронирования мероприятия нажмите кнопку «🎉 Организовать мероприятие» — менеджер подготовит коммерческое предложение с меню и дополнительными услугами.",
+  "auto_check": [
+    "✅ содержит «20»",
+    "✅ содержит «80»"
+  ],
+  "finished_at": "20261128-031518"
+}

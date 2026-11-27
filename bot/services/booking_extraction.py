@@ -239,9 +239,19 @@ INQUIRY_MARKERS = re.compile(
     r"(?<!\w)(?:"
     r"как|каким\s+образом|принимаете|принимают|до\s+скольк\w*|во\s+сколько|нужно\s+ли|надо\s+ли|"
     r"обязательно\s+ли|заранее\s+ли|сколько\s+стоит|"
+    r"опозда\w*|задержусь|задержимся|сохранится|i'?ll\s+be\s+late|кешігемін|"
     r"how|do\s+you|does\s+the|until\s+what|what\s+time|is\s+it\s+necessary|"
     r"қалай|қабылдайсыздар|керек\s+пе"
     r")(?!\w)",
+    re.IGNORECASE,
+)
+
+
+# A message about an EXISTING booking (move / cancel / "у меня бронь") is never a new request,
+# even with "хочу": "Хочу перенести бронь", "У меня бронь на 19:00, я опоздаю".
+EXISTING_BOOKING_MARKERS = re.compile(
+    r"(?<!\w)(?:перенес\w*|отмен\w*|у\s+(?:меня|нас)\s+(?:есть\s+)?бронь|мо[яюей]\w*\s+бро\w*|"
+    r"my\s+(?:booking|reservation)|cancel\w*|reschedul\w*)",
     re.IGNORECASE,
 )
 
@@ -253,6 +263,8 @@ def _has_details(data: dict) -> bool:
 def _classify(text: str, has_details: bool) -> str:
     if not looks_like_booking(text):
         return "none"
+    if EXISTING_BOOKING_MARKERS.search(text):
+        return "inquiry"
     if REQUEST_MARKERS.search(text):
         return "request"
     if INQUIRY_MARKERS.search(text):

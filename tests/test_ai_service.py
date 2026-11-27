@@ -93,7 +93,9 @@ async def test_long_input_is_truncated(history, menu):
     client = FakeClient()
     service = make_service(history, menu, client, ai_max_input_chars=100)
     await service.answer(1, "а" * 5000, "ru")
-    assert client.calls[0][-1]["content"].count("а") == 100
+    reminder, user_part = client.calls[0][-1]["content"].split("\n", 1)
+    assert reminder.startswith("[Reply in")
+    assert user_part == "а" * 100  # exactly the first 100 characters of the guest's text
 
 
 # ---- error handling & fallback -----------------------------------------------------------

@@ -10,7 +10,8 @@
 *.db-shm
 *.sqlite
 *.sqlite3
-data/
+# only the ROOT data/ folder (SQLite with user data); bot/data/ holds the menu and must be in Git
+/data/
 # confirmed booking requests contain names and phone numbers
 bookings.csv
 
