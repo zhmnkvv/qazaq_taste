@@ -63,6 +63,12 @@ class Settings:
     log_level: str
     bookings_csv: str = str(PROJECT_ROOT / "bookings.csv")
     show_reasoning: bool = True  # print the <размышление> block to the console (never sent to Telegram)
+    # Which model serves the bot: "ollama" (local) or "openrouter" (cloud, free models)
+    ai_provider: str = "ollama"
+    openrouter_api_key: str = field(default="", repr=False)
+    openrouter_model: str = "nvidia/nemotron-3.5-super-vl:free"
+    openrouter_timeout: float = 60.0
+    openrouter_reasoning: bool = True
 
     @property
     def has_valid_token(self) -> bool:
@@ -100,6 +106,13 @@ def load_settings(env_file: str | Path | None = None, override: bool = False) ->
         except ValueError as exc:
             raise ConfigError("ADMIN_CHAT_ID must be an integer Telegram chat id") from exc
 
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    ai_provider = os.getenv("AI_PROVIDER", "").strip().lower() or ("openrouter" if openrouter_key else "ollama")
+    if ai_provider not in {"ollama", "openrouter"}:
+        raise ConfigError("AI_PROVIDER must be 'ollama' or 'openrouter'")
+    if ai_provider == "openrouter" and not openrouter_key:
+        raise ConfigError("AI_PROVIDER=openrouter requires OPENROUTER_API_KEY in .env")
+
     log_level = os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO"
     if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
         raise ConfigError("LOG_LEVEL must be one of DEBUG, INFO, WARNING, ERROR, CRITICAL")
@@ -118,8 +131,20 @@ def load_settings(env_file: str | Path | None = None, override: bool = False) ->
         admin_chat_id=admin_chat_id,
         log_level=log_level,
         bookings_csv=_project_path(os.getenv("BOOKINGS_CSV", "").strip() or "bookings.csv"),
-        show_reasoning=os.getenv("SHOW_REASONING", "true").strip().lower() not in {"0", "false", "no", "off"},
+        show_reasoning=_get_bool("SHOW_REASONING", True),
+        ai_provider=ai_provider,
+        openrouter_api_key=openrouter_key,
+        openrouter_model=os.getenv("OPENROUTER_MODEL", "").strip() or "nvidia/nemotron-3.5-super-vl:free",
+        openrouter_timeout=_get_float("OPENROUTER_TIMEOUT", 60.0),
+        openrouter_reasoning=_get_bool("OPENROUTER_REASONING", True),
     )
+
+
+def _get_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw not in {"0", "false", "no", "off"}
 
 
 def _project_path(value: str) -> str:

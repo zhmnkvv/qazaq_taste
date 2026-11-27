@@ -49,7 +49,9 @@ def parse_reasoned_reply(raw: str) -> ParsedReply:
     reasoning = "\n\n".join(reasoning_parts) or None
     has_reasoning_tag = bool(REASONING_OPEN.search(text))
 
-    answer_match = ANSWER_BLOCK.search(text)
+    # <ответ> is searched only OUTSIDE closed reasoning blocks: a draft "<ответ>…" written inside the
+    # analysis must never become the guest's answer.
+    answer_match = ANSWER_BLOCK.search(REASONING_BLOCK.sub("", text))
     if answer_match:
         answer = _clean_answer(answer_match.group(1))
         status = "both" if reasoning else "answer_only"

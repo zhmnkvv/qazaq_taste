@@ -94,6 +94,11 @@ def test_tag_variants(raw):
     assert parsed.answer == ANSWER and parsed.reasoning == REASONING
 
 
+def test_answer_tag_inside_reasoning_is_ignored():
+    raw = f"<think>Draft: <ответ>...</ответ> — so I will answer.</think>\n<ответ>{ANSWER}</ответ>"
+    assert parse_reasoned_reply(raw).answer == ANSWER
+
+
 def test_text_outside_blocks_is_not_sent():
     parsed = parse_reasoned_reply(f"Конечно! {TAGGED} Надеюсь, помог.")
     assert parsed.answer == ANSWER

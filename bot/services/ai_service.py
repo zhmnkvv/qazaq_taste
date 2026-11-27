@@ -53,7 +53,11 @@ class AIServiceError(Exception):
     """Generic AI failure."""
 
 
-class OllamaUnavailableError(AIServiceError):
+class AIUnavailableError(AIServiceError):
+    """The model provider is unreachable, rate-limited or timed out (the bot uses the fallback)."""
+
+
+class OllamaUnavailableError(AIUnavailableError):
     """Ollama server unreachable, model missing or request timed out."""
 
 

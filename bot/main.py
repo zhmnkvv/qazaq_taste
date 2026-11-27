@@ -73,8 +73,16 @@ async def main() -> int:
         return 1
 
     services = build_services(settings)
-    if await services.ollama.is_available():
-        logger.info("Ollama is available, model: %s", settings.ollama_model)
+    if settings.ai_provider == "openrouter":
+        if await services.llm.is_available():
+            logger.info("AI provider: OpenRouter, model %s (reasoning %s, console output %s)",
+                        settings.openrouter_model, "on" if settings.openrouter_reasoning else "off",
+                        "on" if settings.show_reasoning else "off")
+        else:
+            logger.warning("OpenRouter did not accept the API key or is unreachable. The bot will answer "
+                           "with the rule-based fallback until it recovers. Check OPENROUTER_API_KEY in .env.")
+    elif await services.llm.is_available():
+        logger.info("AI provider: Ollama, model: %s", settings.ollama_model)
     else:
         logger.warning(
             "Ollama or model '%s' is not available at %s. The bot will run with the rule-based fallback. "
@@ -98,7 +106,7 @@ async def main() -> int:
         logger.error("Telegram rejected the token (Unauthorized). Check BOT_TOKEN in .env.")
         return 1
     finally:
-        await services.ollama.close()
+        await services.llm.close()
         await bot.session.close()
         services.db.dispose()
     return 0

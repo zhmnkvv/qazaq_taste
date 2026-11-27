@@ -3,7 +3,8 @@ import pytest
 from bot.config import ConfigError, load_settings
 
 ENV_VARS = ["BOT_TOKEN", "DATABASE_URL", "OLLAMA_URL", "OLLAMA_MODEL", "OLLAMA_TIMEOUT", "AI_HISTORY_LIMIT",
-            "ADMIN_CHAT_ID", "LOG_LEVEL", "OLLAMA_NUM_CTX", "TIMEZONE"]
+            "ADMIN_CHAT_ID", "LOG_LEVEL", "OLLAMA_NUM_CTX", "TIMEZONE", "AI_PROVIDER", "OPENROUTER_API_KEY",
+            "OPENROUTER_MODEL", "OPENROUTER_TIMEOUT", "OPENROUTER_REASONING", "SHOW_REASONING"]
 FAKE_TOKEN = "123456789:" + "A" * 35  # format-valid, not a real token
 
 
