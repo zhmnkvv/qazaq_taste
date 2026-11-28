@@ -140,9 +140,11 @@ class FakeClient:
     def __init__(self, reply):
         self.reply = reply
         self.calls = []
+        self.kwargs = []
 
-    async def chat(self, messages):
+    async def chat(self, messages, **kwargs):
         self.calls.append(messages)
+        self.kwargs.append(kwargs)
         return self.reply
 
 
@@ -204,8 +206,9 @@ def test_console_output_is_redacted():
 
 
 async def test_reminder_asks_for_the_format(history, menu):
+    # HW11: the format is requested only when reasoning is ON (here: a bill calculated by Python)
     svc = service(history, menu, TAGGED)
-    await svc.answer(1, "Привет", "ru")
+    await svc.answer(1, "Посчитайте счёт: 2 бешбармака и 3 айрана", "ru")
     assert "<размышление>" in svc.client.calls[0][-1]["content"]
 
 
@@ -271,7 +274,7 @@ async def test_fallback_uses_python_bill_when_model_is_down(history, menu):
     from bot.services.ai_service import OllamaUnavailableError
 
     class Down:
-        async def chat(self, messages):
+        async def chat(self, messages, **kwargs):
             raise OllamaUnavailableError("down")
 
     reply = await AIService(Down(), history, menu, make_settings()).answer(1, BILL_Q, "ru")

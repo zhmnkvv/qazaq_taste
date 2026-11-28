@@ -146,6 +146,8 @@ In order of priority:
 - For an official calculation, direct the user to "🎉 Organize an event"
   (or /event). That flow produces a commercial proposal calculated by the
   system and saves the request for the manager.
+- The bot shows the calculated proposal to the guest immediately in the chat; a manager only contacts
+  the guest later to confirm the date, hall and final terms. Never say a manager will prepare the proposal.
 
 ---------------------------------------------------------------------
 9. COMMERCIAL PROPOSALS

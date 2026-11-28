@@ -217,7 +217,7 @@ class ScriptedLLM:
         self.answers = list(answers)
         self.calls = 0
 
-    async def chat(self, messages, json_mode=False, temperature=None):
+    async def chat(self, messages, json_mode=False, temperature=None, reasoning=None):
         self.calls += 1
         return self.answers.pop(0)
 
@@ -370,7 +370,7 @@ class TaggedLLM:
         self.reply = reply
         self.calls = 0
 
-    async def chat(self, messages, json_mode=False, temperature=None):
+    async def chat(self, messages, json_mode=False, temperature=None, reasoning=None):
         self.calls += 1
         return self.reply
 
@@ -429,7 +429,7 @@ async def test_late_arrival_question_goes_to_ai_with_python_calculation(env):
     services.ai.client = llm
     seen = {}
 
-    async def spy(messages, json_mode=False, temperature=None):
+    async def spy(messages, json_mode=False, temperature=None, reasoning=None):
         seen["system"] = messages[0]["content"]
         return await TaggedLLM.chat(llm, messages)
 

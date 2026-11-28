@@ -40,6 +40,7 @@ def build_llm(settings: Settings) -> OllamaClient | OpenRouterClient:
         return OpenRouterClient(
             settings.openrouter_api_key, settings.openrouter_model, timeout=settings.openrouter_timeout,
             temperature=settings.ollama_temperature, reasoning=settings.openrouter_reasoning,
+            show_reasoning=settings.show_reasoning,
         )
     return OllamaClient(
         settings.ollama_url, settings.ollama_model, settings.ollama_timeout,

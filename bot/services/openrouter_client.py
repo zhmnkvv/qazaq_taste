@@ -32,6 +32,7 @@ import aiohttp
 from bot.services.ai_service import AIServiceError, AIUnavailableError
 
 logger = logging.getLogger(__name__)
+reasoning_logger = logging.getLogger("qazaq_taste.reasoning")
 
 API_BASE = "https://openrouter.ai/api/v1"
 # Any of our format tags inside the API reasoning (models often draft the reply there, e.g.
@@ -42,7 +43,9 @@ _FORMAT_TAGS = re.compile(r"<\s*(/?)\s*(think|thinking|reasoning|размышл�
 
 class OpenRouterClient:
     def __init__(self, api_key: str, model: str, timeout: float = 60.0, temperature: float = 0.4,
-                 reasoning: bool = True, max_tokens: int = 4096, base_url: str = API_BASE) -> None:
+                 reasoning: bool = True, max_tokens: int = 4096, base_url: str = API_BASE,
+                 show_reasoning: bool = True) -> None:
+        self.show_reasoning = show_reasoning  # print API reasoning of JSON calls to the console
         if not api_key:
             raise ValueError("OpenRouter API key is empty")
         self._api_key = api_key
@@ -80,15 +83,22 @@ class OpenRouterClient:
         except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
             return False
 
+    def reasoning_enabled(self, json_mode: bool, reasoning: bool | None) -> bool:
+        """HW11: the caller decides per request (AIService / BookingExtractor); OPENROUTER_REASONING=false
+        switches reasoning off everywhere. Without an explicit decision the old default applies."""
+        if not self.reasoning:
+            return False
+        return (not json_mode) if reasoning is None else bool(reasoning)
+
     async def chat(self, messages: list[dict[str, str]], json_mode: bool = False,
-                   temperature: float | None = None) -> str:
+                   temperature: float | None = None, reasoning: bool | None = None) -> str:
+        enabled = self.reasoning_enabled(json_mode, reasoning)
         body: dict = {
             "model": self.model,
             "messages": messages,
             "temperature": self.temperature if temperature is None else temperature,
             "max_tokens": self.max_tokens,
-            # the JSON extraction call must return pure JSON, so reasoning is off there
-            "reasoning": {"enabled": bool(self.reasoning and not json_mode)},
+            "reasoning": {"enabled": enabled},
         }
         if json_mode:
             body["response_format"] = {"type": "json_object"}
@@ -128,11 +138,17 @@ class OpenRouterClient:
             raise AIServiceError(f"Empty answer from OpenRouter (finish_reason={choices[0].get('finish_reason')})")
 
         usage = payload.get("usage") or {}
-        logger.info("OpenRouter reply: model=%s, completion_tokens=%s, reasoning_tokens=%s",
-                    payload.get("model", self.model), usage.get("completion_tokens"),
+        logger.info("OpenRouter reply: model=%s, reasoning=%s, completion_tokens=%s, reasoning_tokens=%s",
+                    payload.get("model", self.model), "on" if enabled else "off", usage.get("completion_tokens"),
                     (usage.get("completion_tokens_details") or {}).get("reasoning_tokens"))
 
-        api_reasoning = "" if json_mode else extract_api_reasoning(message)
+        api_reasoning = extract_api_reasoning(message)
+        if json_mode:
+            # the JSON must stay pure: its reasoning (if any) goes to the console only, never into the content
+            if api_reasoning and self.show_reasoning:
+                reasoning_logger.info("\n%s\n%s\n%s", "========== REASONING (booking JSON extraction) ==========",
+                                      api_reasoning, "========== JSON ==========\n" + content.strip())
+            return content
         if api_reasoning:
             # console-only: the reasoning parser treats <think> as reasoning and never sends it to the guest
             return f"<think>\n{api_reasoning}\n</think>\n{content}"

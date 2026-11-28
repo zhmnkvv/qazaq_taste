@@ -28,9 +28,11 @@ class FakeClient:
         self.reply = reply
         self.error = error
         self.calls: list[list[dict]] = []
+        self.kwargs: list[dict] = []  # HW11: e.g. reasoning=True/False per request
 
-    async def chat(self, messages):
+    async def chat(self, messages, **kwargs):
         self.calls.append(messages)
+        self.kwargs.append(kwargs)
         if self.error:
             raise self.error
         return self.reply
@@ -133,7 +135,7 @@ async def test_fallback_when_ollama_server_is_down(history, menu):
 
 async def test_fallback_on_timeout(history, menu):
     class SlowClient:
-        async def chat(self, messages):
+        async def chat(self, messages, **kwargs):
             await asyncio.sleep(0)
             raise OllamaUnavailableError("timeout")
 

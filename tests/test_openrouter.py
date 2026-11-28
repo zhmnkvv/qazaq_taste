@@ -299,7 +299,7 @@ async def test_booking_extraction_works_through_openrouter(fake, tmp_path):
         "missing": ["time", "name", "phone"]}), reasoning="should not be used"))
     _, sent = await _send(fake, "Хочу забронировать столик на завтра на четверых", tmp_path)
     assert sent[-1] == "На какое время хотите забронировать столик?"
-    assert fake.requests[-1]["reasoning"] == {"enabled": False}
+    assert fake.requests[-1]["reasoning"] == {"enabled": True}  # HW11: booking -> reasoning ON
 
 
 # --------------------------------------------------------------------------- #

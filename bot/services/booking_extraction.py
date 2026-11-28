@@ -323,7 +323,8 @@ class BookingExtractor:
         for attempt in (1, 2):  # first try + exactly one retry
             attempts = attempt
             try:
-                raw = await self.client.chat(messages, json_mode=True, temperature=0)
+                # HW11: booking -> reasoning ON (its text never enters the JSON, see OpenRouterClient)
+                raw = await self.client.chat(messages, json_mode=True, temperature=0, reasoning=True)
             except AIServiceError as exc:
                 logger.warning("Booking extraction: model unavailable (%s), using rules", type(exc).__name__)
                 return ExtractionResult("ok", extract_by_rules(text, self.today(), asked), "rules", attempts)

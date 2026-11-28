@@ -42,9 +42,9 @@ class FakeClient:
         self.error = error
         self.calls: list[dict] = []
 
-    async def chat(self, messages, json_mode=False, temperature=None):
+    async def chat(self, messages, json_mode=False, temperature=None, reasoning=None):
         self.calls.append({"messages": [dict(m) for m in messages], "json_mode": json_mode,
-                           "temperature": temperature})
+                           "temperature": temperature, "reasoning": reasoning})
         if self.error:
             raise self.error
         return self.answers.pop(0)

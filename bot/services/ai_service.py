@@ -166,8 +166,10 @@ class OllamaClient:
         return wanted in names or self.model in names
 
     async def chat(self, messages: list[dict[str, str]], json_mode: bool = False,
-                   temperature: float | None = None) -> str:
-        """``json_mode`` asks Ollama to constrain the output to JSON (used for booking extraction)."""
+                   temperature: float | None = None, reasoning: bool | None = None) -> str:
+        """``json_mode`` asks Ollama to constrain the output to JSON (used for booking extraction).
+        ``reasoning`` is accepted for interface compatibility; Ollama's /api/chat has no switch for it
+        here, so only the prompt (with or without section 18) changes."""
         body = {
             "model": self.model,
             "messages": messages,
@@ -406,6 +408,7 @@ class AIReply:
     source: str                    # "ai" | "fallback" | "guard"
     reasoning: str | None = None   # console-only demonstration, never sent to Telegram
     parse_status: str | None = None
+    reasoning_enabled: bool | None = None  # HW11: was reasoning requested for this message
 
 
 class AIService:
@@ -416,36 +419,42 @@ class AIService:
         self.menu = menu
         self.settings = settings
         self.system_prompt = system_prompt or load_system_prompt()
+        # HW11: prompt for requests where reasoning is OFF — no section 18, no <размышление>/<ответ> wrappers
+        self.plain_prompt = without_reasoning_format(self.system_prompt)
         self.knowledge_base = menu.knowledge_base()
         self.fallback = FallbackResponder(menu)
 
     def now(self) -> datetime:
         return datetime.now(ZoneInfo(self.settings.timezone))
 
-    def build_system_message(self, lang: str, calculations: Calculations | None = None) -> str:
+    def build_system_message(self, lang: str, calculations: Calculations | None = None,
+                             reasoning: bool = True) -> str:
         now = self.now()
         session = (
             "## SESSION\n"
             f"User interface language: {LANG_NAMES.get(lang, 'Russian')} ({lang}).\n"
             f"Current date and time in Almaty: {now:%d.%m.%Y %H:%M} ({now:%A})."
         )
-        message = f"{self.system_prompt}\n\n# KNOWLEDGE BASE\n{self.knowledge_base}\n\n{session}"
+        prompt = self.system_prompt if reasoning else self.plain_prompt
+        message = f"{prompt}\n\n# KNOWLEDGE BASE\n{self.knowledge_base}\n\n{session}"
         if calculations:
             message += "\n\n" + calculations.as_prompt()
         return message
 
     def build_messages(self, telegram_id: int, user_text: str, lang: str,
-                       calculations: Calculations | None = None) -> list[dict[str, str]]:
+                       calculations: Calculations | None = None,
+                       reasoning: bool | None = None) -> list[dict[str, str]]:
         history = self.history.last(telegram_id, self.settings.ai_history_limit)
         reply_lang = detect_language(user_text, lang)
         if calculations is None:
             calculations = calculate(user_text, self.menu, self.now().date())
-        reminder = (
-            f"[Reply in {LANG_NAMES[reply_lang]}. Follow the Qazaq Taste consultant rules. "
-            "Use the format <размышление>…</размышление> <ответ>…</ответ>.]\n"
-        )
+        if reasoning is None:
+            from bot.services.reasoning_policy import decide_reasoning  # local: avoids an import cycle
+            reasoning = decide_reasoning(user_text, calculations).enabled
+        reminder = f"[Reply in {LANG_NAMES[reply_lang]}. Follow the Qazaq Taste consultant rules."
+        reminder += " Use the format <размышление>…</размышление> <ответ>…</ответ>.]\n" if reasoning else "]\n"
         return [
-            {"role": "system", "content": self.build_system_message(lang, calculations)},
+            {"role": "system", "content": self.build_system_message(lang, calculations, reasoning)},
             *history,
             {"role": "user", "content": reminder + user_text},
         ]
@@ -458,15 +467,21 @@ class AIService:
 
         # money / guests / late-arrival maths is done by Python, not by the model
         calcs = calculate(text, self.menu, self.now().date())
-        messages = self.build_messages(telegram_id, text, lang, calcs)
+        # HW11: reasoning only for booking and calculations, OFF for simple questions
+        from bot.services.reasoning_policy import decide_reasoning  # local: avoids an import cycle
+        decision = decide_reasoning(text, calcs)
+        logger.info("AI request: %s", decision)
+        messages = self.build_messages(telegram_id, text, lang, calcs, decision.enabled)
         try:
-            raw = await self.client.chat(messages)
+            raw = await self.client.chat(messages, reasoning=decision.enabled)
         except AIServiceError as exc:
             logger.warning("AI unavailable, using fallback: %s", exc)
-            return AIReply(self.fallback.answer(text, reply_lang, calcs), "fallback")
+            return AIReply(self.fallback.answer(text, reply_lang, calcs), "fallback",
+                           reasoning_enabled=decision.enabled)
         except Exception:  # never let the AI break the bot
             logger.exception("Unexpected AI error, using fallback")
-            return AIReply(self.fallback.answer(text, reply_lang, calcs), "fallback")
+            return AIReply(self.fallback.answer(text, reply_lang, calcs), "fallback",
+                           reasoning_enabled=decision.enabled)
 
         # Split <размышление> (console only) from <ответ> (the only part the guest receives).
         parsed = parse_reasoned_reply(raw)
@@ -475,18 +490,18 @@ class AIService:
             fallback_text = self.fallback.answer(text, reply_lang, calcs)
             if self.settings.show_reasoning:
                 log_reasoning(parsed, fallback_text, source="fallback")
-            return AIReply(fallback_text, "fallback", parsed.reasoning, parsed.status)
+            return AIReply(fallback_text, "fallback", parsed.reasoning, parsed.status, decision.enabled)
         if leaks_system_prompt(reply, self.system_prompt):
             logger.warning("Blocked a reply that leaked system instructions")
-            return AIReply(_F["injection"][reply_lang], "guard", parsed.reasoning, parsed.status)
-        if self.settings.show_reasoning:
+            return AIReply(_F["injection"][reply_lang], "guard", parsed.reasoning, parsed.status, decision.enabled)
+        if self.settings.show_reasoning and parsed.reasoning:
             log_reasoning(parsed, reply)
 
         # history keeps only what the guest actually saw
         self.history.add(telegram_id, "user", text)
         self.history.add(telegram_id, "assistant", reply)
         self.history.prune(telegram_id, keep=max(self.settings.ai_history_limit, 2))
-        return AIReply(reply, "ai", parsed.reasoning, parsed.status)
+        return AIReply(reply, "ai", parsed.reasoning, parsed.status, decision.enabled)
 
     def reset(self, telegram_id: int) -> None:
         self.history.clear(telegram_id)
